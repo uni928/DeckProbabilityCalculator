@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>カードゲーム初動確率計算ツール</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    h2 { margin-top: 30px; }
+    .card-list, .pattern-list { list-style: none; padding: 0; }
+    .card-item, .pattern-item { display: flex; align-items: center; margin-bottom: 5px; }
+    .card-item span, .pattern-item span { flex: 1; }
+    button { margin-left: 5px; }
+    input[type="text"] { width: 200px; }
+    .toggle { margin-left: 10px; }
+  </style>
+</head>
+<body>
+  <h1>カードゲーム初動確率計算ツール</h1>
+
+  <h2>デッキ管理</h2>
+  <label>デッキ名: <input type="text" id="deckName" placeholder="デッキ名を入力"></label>
+  <br><br>
+  <input type="text" id="cardInput" placeholder="カード名">
+  <button onclick="addCard()">追加</button>
+  <ul id="deckList" class="card-list"></ul>
+  <button onclick="saveDeck()">デッキを保存</button>
+  <input type="file" id="fileInput" onchange="loadDeck()" accept=".txt">
+  <br><br>
+
+  <h2>初動パターン管理</h2>
+  <input type="text" id="patternInput" placeholder="初動パターン (例: A,B)">
+  <button onclick="addPattern()">追加</button>
+  <ul id="patternList" class="pattern-list"></ul>
+
+  <h2>確率計算</h2>
+  <label>初手枚数: <input type="number" id="handSize" value="5" min="1" max="10"></label>
+  <br><br>
+  <button onclick="calculateProbability()">確率を計算</button>
+  <p id="result"></p>
+
+  <script>
+    let deck = {};
+    let patterns = [];
+
+    // Enterキーで追加をトリガー
+    document.getElementById("cardInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addCard();
+      }
+    });
+    document.getElementById("patternInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addPattern();
+      }
+    });
+
+    function addCard() {
+      const cardName = document.getElementById("cardInput").value.trim();
+      if (!cardName) return;
+      deck[cardName] = (deck[cardName] || 0) + 1;
+      document.getElementById("cardInput").value = "";
+      renderDeck();
+    }
+
+    function renderDeck() {
+      const deckList = document.getElementById("deckList");
+      deckList.innerHTML = "";
+      const sortedEntries = Object.entries(deck).sort((a, b) => a[0].localeCompare(b[0], 'ja'));
+      sortedEntries.forEach(([name, count]) => {
+        const li = document.createElement("li");
+        li.className = "card-item";
+        li.innerHTML = `<span>${name} (${count})</span>
+          <button onclick="deck['${name}']++; renderDeck()">＋</button>
+          <button onclick="deck['${name}']>1?deck['${name}']--:delete deck['${name}']; renderDeck()">－</button>
+          <button onclick="addToPatternInput('${name}')">初動パターンに追加</button>`;
+        deckList.appendChild(li);
+      });
+    }
+
+    function addToPatternInput(cardName) {
+      const patternInput = document.getElementById("patternInput");
+      let currentValue = patternInput.value.trim();
+      if (currentValue && !currentValue.endsWith(",")) {
+        currentValue += ",";
+      }
+      patternInput.value = currentValue + (currentValue ? " " : "") + cardName;
+      patternInput.focus();
+    }
+
+    function addPattern() {
+      const input = document.getElementById("patternInput").value.trim();
+      if (!input) return;
+      const cards = input.split(",").map(c => c.trim()).sort((a, b) => a.localeCompare(b, 'ja')); // 名前順ソート
+      patterns.push({ cards, active: true });
+      document.getElementById("patternInput").value = "";
+      renderPatterns();
+    }
+
+    function renderPatterns() {
+      const patternList = document.getElementById("patternList");
+      patternList.innerHTML = "";
+      const sortedPatterns = [...patterns].sort((a, b) => {
+        return a.cards.join(",").localeCompare(b.cards.join(","), 'ja');
+      });
+      sortedPatterns.forEach((p, index) => {
+        const li = document.createElement("li");
+        li.className = "pattern-item";
+        li.innerHTML = `<span>${p.cards.join(" + ")}</span>
+          <label class="toggle"><input type="checkbox" ${p.active ? "checked" : ""} onchange="patterns[${index}].active=this.checked"> ON/OFF</label>
+          <button onclick="patterns.splice(${index},1); renderPatterns()">削除</button>`;
+        patternList.appendChild(li);
+      });
+    }
+
+    function calculateProbability() {
+      const deckSize = Object.values(deck).reduce((a, b) => a + b, 0);
+      const handSize = parseInt(document.getElementById("handSize").value);
+      if (deckSize < handSize) {
+        document.getElementById("result").innerText = "エラー: デッキ枚数が少なすぎます。";
+        return;
+      }
+
+      const activePatterns = patterns.filter(p => p.active);
+      const probs = activePatterns.map(p => probabilityAllCards(deckSize, handSize, p.cards));
+
+      const atLeastOne = calcAtLeast(probs, 1);
+      const atLeastTwo = calcAtLeast(probs, 2);
+      const atLeastThree = calcAtLeast(probs, 3);
+      const atLeastFour = calcAtLeast(probs, 4);
+
+      document.getElementById("result").innerText =
+        `初動を1種類以上全て揃える確率: ${(atLeastOne * 100).toFixed(2)}% \n` +
+        `初動を2種類以上全て揃える確率: ${(atLeastTwo * 100).toFixed(2)}% \n` +
+        `初動を3種類以上全て揃える確率: ${(atLeastThree * 100).toFixed(2)}% \n` +
+        `初動を4種類以上全て揃える確率: ${(atLeastFour * 100).toFixed(2)}%`;
+    }
+
+    function calcAtLeast(probs, count) {
+      if (probs.length < count) return 0;
+      let total = 0;
+      const combos = k_combinations(probs, count);
+      combos.forEach(arr => {
+        let product = arr.reduce((a, b) => a * b, 1);
+        total += product;
+      });
+      return Math.min(total, 1);
+    }
+
+    function k_combinations(set, k) {
+      if (k > set.length || k <= 0) return [];
+      if (k === set.length) return [set];
+      if (k === 1) return set.map(e => [e]);
+      let combs = [];
+      for (let i = 0; i <= set.length - k; i++) {
+        const head = set.slice(i, i + 1);
+        const tailcombs = k_combinations(set.slice(i + 1), k - 1);
+        tailcombs.forEach(tc => combs.push(head.concat(tc)));
+      }
+      return combs;
+    }
+
+    function probabilityAllCards(deckSize, handSize, cards) {
+      for (let c of cards) {
+        if (!(c in deck)) return 0;
+      }
+      if (cards.length > handSize) return 0;
+
+      let ways = 1;
+      let remainingDeck = deckSize;
+      let remainingHand = handSize;
+
+      for (let c of cards) {
+        ways *= combination(deck[c], 1);
+        remainingDeck -= 1;
+        remainingHand -= 1;
+      }
+      ways *= combination(remainingDeck, remainingHand);
+      const totalWays = combination(deckSize, handSize);
+      return ways / totalWays;
+    }
+
+    function combination(n, k) {
+      if (k > n) return 0;
+      let res = 1;
+      for (let i = 1; i <= k; i++) {
+        res *= (n - i + 1) / i;
+      }
+      return res;
+    }
+
+    function saveDeck() {
+      const deckName = document.getElementById("deckName").value || "deck";
+      const data = JSON.stringify({ name: deckName, deck, patterns });
+      const blob = new Blob([data], { type: "text/plain" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = deckName + ".txt";
+      link.click();
+    }
+
+    function loadDeck() {
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        const data = JSON.parse(e.target.result);
+        deck = data.deck || {};
+        patterns = data.patterns || [];
+        document.getElementById("deckName").value = data.name || "";
+        renderDeck();
+        renderPatterns();
+      };
+      reader.readAsText(file);
+    }
+  </script>
+</body>
+</html>
