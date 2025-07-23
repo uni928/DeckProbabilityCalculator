@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>カードゲーム初動確率計算ツール</title>
+  <title>カードゲーム初動確率計算ツール（AND条件版）</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
     h2 { margin-top: 30px; }
@@ -16,7 +16,7 @@
   </style>
 </head>
 <body>
-  <h1>カードゲーム初動確率計算ツール</h1>
+  <h1>カードゲーム初動確率計算ツール（AND条件版）</h1>
 
   <h2>デッキ管理</h2>
   <label>デッキ名: <input type="text" id="deckName" placeholder="デッキ名を入力"></label>
@@ -43,7 +43,6 @@
     let deck = {};
     let patterns = [];
 
-    // Enterキーで追加をトリガー
     document.getElementById("cardInput").addEventListener("keydown", function (e) {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -93,7 +92,7 @@
     function addPattern() {
       const input = document.getElementById("patternInput").value.trim();
       if (!input) return;
-      const cards = input.split(",").map(c => c.trim()).sort((a, b) => a.localeCompare(b, 'ja')); // 名前順ソート
+      const cards = input.split(",").map(c => c.trim()).sort((a, b) => a.localeCompare(b, 'ja'));
       patterns.push({ cards, active: true });
       document.getElementById("patternInput").value = "";
       renderPatterns();
@@ -138,16 +137,23 @@
         `初動を4種類以上全て揃える確率: ${(atLeastFour * 100).toFixed(2)}%`;
     }
 
-    function calcAtLeast(probs, count) {
-      if (probs.length < count) return 0;
-      let total = 0;
-      const combos = k_combinations(probs, count);
-      combos.forEach(arr => {
-        let product = arr.reduce((a, b) => a * b, 1);
-        total += product;
-      });
-      return Math.min(total, 1);
-    }
+function calcAtLeast(probs, count) {
+  const totalPatterns = probs.length;
+  if (totalPatterns < count) return 0;
+
+  // Inclusion-Exclusion 原理
+  let result = 0;
+  for (let k = count; k <= totalPatterns; k++) {
+    const sign = ((k - count) % 2 === 0) ? 1 : -1;
+    const combos = k_combinations(probs, k);
+    combos.forEach(arr => {
+      let product = arr.reduce((a, b) => a * b, 1);
+      result += sign * product;
+    });
+  }
+  // 確率は0～1の範囲に制限
+  return Math.min(Math.max(result, 0), 1);
+}
 
     function k_combinations(set, k) {
       if (k > set.length || k <= 0) return [];
@@ -162,25 +168,50 @@
       return combs;
     }
 
-    function probabilityAllCards(deckSize, handSize, cards) {
-      for (let c of cards) {
-        if (!(c in deck)) return 0;
-      }
-      if (cards.length > handSize) return 0;
+function probabilityAllCards(deckSize, handSize, cards) {
+  let combinedProb = 1;
 
-      let ways = 1;
-      let remainingDeck = deckSize;
-      let remainingHand = handSize;
+  for (let c of cards) {
+    if (!(c in deck)) return 0; // 必要カードがデッキに無ければ確率0
+    const copies = deck[c];
 
-      for (let c of cards) {
-        ways *= combination(deck[c], 1);
-        remainingDeck -= 1;
-        remainingHand -= 1;
-      }
-      ways *= combination(remainingDeck, remainingHand);
-      const totalWays = combination(deckSize, handSize);
-      return ways / totalWays;
-    }
+    // このカードが手札に1枚以上含まれる確率 = 1 - 1枚も引かない確率
+    const failProb = hypergeometric(deckSize, handSize, copies, 0);
+    const successProb = 1 - failProb;
+
+    combinedProb *= successProb;
+  }
+
+  return combinedProb; // 全カードが含まれる近似確率
+}
+
+function hypergeometric(deckSize, handSize, successCount, k) {
+  // deckSize枚のデッキからhandSize枚引くとき
+  // successCount枚の成功カードをk枚引く確率
+  return (
+    combination(successCount, k) *
+    combination(deckSize - successCount, handSize - k)
+  ) / combination(deckSize, handSize);
+}
+
+
+function jointHypergeometric(deckSize, handSize, cards) {
+  // 多変量超幾何分布の補集合を計算
+  let failProb = 0;
+  const totalComb = combination(deckSize, handSize);
+
+  // 必要カードの枚数を取得
+  const cardCounts = cards.map(c => deck[c]);
+
+  // すべてのカードが1枚も引けない確率を計算
+  let remainingDeck = deckSize;
+  let remainingHand = handSize;
+  cardCounts.forEach(count => {
+    failProb += combination(remainingDeck - count, remainingHand) / totalComb;
+  });
+
+  return 1 - failProb; // 補集合
+}
 
     function combination(n, k) {
       if (k > n) return 0;
