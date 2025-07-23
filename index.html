@@ -89,30 +89,44 @@
       patternInput.focus();
     }
 
-    function addPattern() {
-      const input = document.getElementById("patternInput").value.trim();
-      if (!input) return;
-      const cards = input.split(",").map(c => c.trim()).sort((a, b) => a.localeCompare(b, 'ja'));
-      patterns.push({ cards, active: true });
-      document.getElementById("patternInput").value = "";
-      renderPatterns();
-    }
+function addPattern() {
+  const input = document.getElementById("patternInput").value.trim();
+  if (!input) return;
 
-    function renderPatterns() {
-      const patternList = document.getElementById("patternList");
-      patternList.innerHTML = "";
-      const sortedPatterns = [...patterns].sort((a, b) => {
-        return a.cards.join(",").localeCompare(b.cards.join(","), 'ja');
-      });
-      sortedPatterns.forEach((p, index) => {
-        const li = document.createElement("li");
-        li.className = "pattern-item";
-        li.innerHTML = `<span>${p.cards.join(" + ")}</span>
-          <label class="toggle"><input type="checkbox" ${p.active ? "checked" : ""} onchange="patterns[${index}].active=this.checked"> ON/OFF</label>
-          <button onclick="patterns.splice(${index},1); renderPatterns()">削除</button>`;
-        patternList.appendChild(li);
-      });
-    }
+  // 「,」または「+」で分割し、空白を除去
+  const cards = input.split(/[,＋+]/).map(c => c.trim()).filter(c => c);
+
+  patterns.push({ cards, active: true });
+  document.getElementById("patternInput").value = "";
+  renderPatterns();
+}
+
+
+function renderPatterns() {
+  const patternList = document.getElementById("patternList");
+  patternList.innerHTML = "";
+  const sortedPatterns = [...patterns].sort((a, b) => {
+    return a.cards.join(",").localeCompare(b.cards.join(","), 'ja');
+  });
+  sortedPatterns.forEach((p) => {
+    const index = patterns.indexOf(p);
+    const li = document.createElement("li");
+    li.className = "pattern-item";
+    li.innerHTML = `<span>${p.cards.join(" + ")}</span>
+      <label class="toggle">
+        <input type="checkbox" ${p.active ? "checked" : ""} data-index="${index}" onchange="togglePatternActive(this)"> ON/OFF
+      </label>
+      <button onclick="patterns.splice(${index},1); renderPatterns()">削除</button>`;
+    patternList.appendChild(li);
+  });
+}
+
+function togglePatternActive(checkbox) {
+  const index = checkbox.dataset.index;
+  patterns[index].active = checkbox.checked;
+}
+
+
 
     function calculateProbability() {
       const deckSize = Object.values(deck).reduce((a, b) => a + b, 0);
@@ -170,19 +184,14 @@ function calcAtLeast(probs, count) {
 
 function probabilityAllCards(deckSize, handSize, cards) {
   let combinedProb = 1;
-
   for (let c of cards) {
-    if (!(c in deck)) return 0; // 必要カードがデッキに無ければ確率0
-    const copies = deck[c];
-
-    // このカードが手札に1枚以上含まれる確率 = 1 - 1枚も引かない確率
-    const failProb = hypergeometric(deckSize, handSize, copies, 0);
-    const successProb = 1 - failProb;
-
-    combinedProb *= successProb;
+    const copies = deck[c] || 0;
+    if (copies === 0) return 0; // デッキに存在しないなら確率0
+    // このカード c が1枚以上手札に含まれる確率
+    combinedProb *= 1 - hypergeometric(deckSize, handSize, copies, 0);
   }
 
-  return combinedProb; // 全カードが含まれる近似確率
+  return combinedProb;
 }
 
 function hypergeometric(deckSize, handSize, successCount, k) {
